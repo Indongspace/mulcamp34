@@ -1,0 +1,251 @@
+USE mydata;
+
+SELECT * FROM dataset2;
+
+-- Division Name 별 평균 평점
+SELECT 
+	`DIVISION NAME`
+    , AVG(RATING) AVG_RATE
+FROM dataset2
+GROUP BY 1
+ORDER BY 2 DESC;
+
+-- Department 별 평균 평점 
+SELECT 
+	`DEPARTMENT NAME`
+    , AVG(RATING) AVG_RATE
+FROM dataset2
+GROUP BY 1
+ORDER BY 1;
+
+-- Trend 평점 3점 이하 리뷰 
+SELECT *
+FROM dataset2
+WHERE `DEPARTMENT NAME` = 'Trend'
+	AND RATING <= 3;
+    
+-- 연령대 10으로 
+SELECT
+	`DEPARTMENT NAME`
+	, FLOOR(AGE/10) * 10 AGEBAND
+    , AGE
+FROM dataset2
+WHERE `DEPARTMENT NAME` = 'Tops'
+	AND RATING <= 3
+;
+
+-- Trend의 전체 연령별 리뷰수를 구한다.
+SELECT
+	FLOOR(AGE/10) * 10 AGEBAND
+    , COUNT(*) AS CNT
+FROM dataset2
+WHERE `DEPARTMENT NAME` = 'Trend'
+GROUP BY 1
+ORDER BY 2 DESC
+;
+
+-- Trend 전체 리뷰 수 : 30, 40, 50 순르오 작성 
+-- 평점 3점 이하 : 50대의 리뷰수가 상대적으로 많음 
+SELECT *
+FROM dataset2
+WHERE `Department name` = 'Trend'
+AND RATING <= 3
+AND AGE BETWEEN 50 AND 59 LIMIT 10
+;
+
+-- 평점이 낮은 상품의 주요 Complain 찾기 
+-- Department 별 평점이 낮은 10개 상품을 임시 테이블로 생성 
+SELECT 
+	`DEPARTMENT NAME`
+    , `CLOTHING ID`
+    , AVG(RATING) AVG_RATE
+FROM dataset2 
+GROUP BY 1,2
+;
+
+-- Department AVG_RATE 별 순위 생성
+-- 평점이 가장 낮은 것이 1위
+-- ROW_NUMBER() RNK
+-- 그 다음에 해야 할 것, 각 Department 별로 순위 10개씩 조회
+CREATE TABLE mydata.stat AS 
+SELECT * FROM
+(
+	SELECT *
+    , ROW_NUMBER() OVER(PARTITION BY `DEPARTMENT NAME` ORDER BY AVG_RATE) RNK
+    FROM (
+		SELECT 
+			`DEPARTMENT NAME`
+            , `CLOTHING ID`
+            , AVG(RATING) AVG_RATE 
+		FROM dataset2
+        GROUP BY 1, 2
+    ) A
+) A 
+WHERE RNK <= 10
+;
+
+SELECT * FROM STAT;
+
+-- Bottoms의 평점이 낮은 10개 상품의 clothing ID 조회 
+SELECT `CLOTHING ID` 
+FROM stat
+WHERE `DEPARTMENT NAME` = 'Bottoms'
+;
+
+-- 평점이 낮은 10개 상품의 Clothing ID의 리뷰를 확인하고 싶은 것
+-- 메인쿼리 :  의 리뷰
+-- 서브쿼리 : 평점이 낮은 10개 상품의 Clothing ID
+SELECT `Clothing ID`, `REVIEW TEXT` FROM dataset2
+WHERE `Clothing ID`	IN (
+	SELECT `CLOTHING ID` 
+	FROM stat
+	WHERE `DEPARTMENT NAME` = 'Bottoms'
+);
+
+-- TF-IDF : SQL에서 활용하기에는 매우 어려움
+-- MYSQL TF-IDF 메서드 없음 
+-- 첫번째, PL/SQL 활용해서, 로직을 구현하는 것, 함수, 프로시저 
+-- 두번째, MySQL to Python으로 연결해서, 데이터를 내보내기 
+
+-- 연령별 Worst Department 
+-- p.140
+-- (1) Department별 연령별로 가장 낮은 점수 계산 
+-- (2) 생성한 점수를 기반으로 Rank 생성
+-- (3) Rank 값이 1인 데이터를 조회
+-- 할인쿠폰 발송
+
+-- (1) Department별 연령별로 가장 낮은 점수 계산 
+SELECT
+	`Department Name`
+    , FLOOR(AGE/10) * 10 AGEBAND
+    , AVG(RATING) AVG_RATING
+FROM dataset2
+GROUP BY 1,2
+;
+-- (2) 생성한 점수를 기반으로 Rank 생성
+SELECT * FROM
+(
+	SELECT *
+    , ROW_NUMBER() OVER(PARTITION BY `DEPARTMENT NAME` ORDER BY AVG_RATING) RNK
+    FROM (
+		SELECT
+			`Department Name`
+			, FLOOR(AGE/10) * 10 AGEBAND
+			, AVG(RATING) AVG_RATING
+		FROM dataset2
+		GROUP BY 1,2
+    ) A
+) A
+;
+-- (3) Rank 값이 1인 데이터를 조회
+SELECT *
+FROM
+(
+	SELECT *
+    , ROW_NUMBER() OVER(PARTITION BY `DEPARTMENT NAME` ORDER BY AVG_RATING) RNK
+    FROM (
+		SELECT
+			`Department Name`
+			, FLOOR(AGE/10) * 10 AGEBAND
+			, AVG(RATING) AVG_RATING
+		FROM dataset2
+		GROUP BY 1,2
+    ) A
+) A
+WHERE RNK = 1
+;
+
+-- p.144 Size Complain
+SELECT
+	`REVIEW TEXT`
+    , CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END SIZE_YN
+FROM dataset2
+;
+
+SELECT 
+	SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) N_SIZE
+	, COUNT(*) N_TOTAL
+FROM dataset2
+;
+
+SELECT 
+	SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) N_SIZE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LARGE%' THEN 1 ELSE 0 END) N_LARGE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LOOSE%' THEN 1 ELSE 0 END) N_LOOSE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SMALL%' THEN 1 ELSE 0 END) N_SMALL
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%TIGHT%' THEN 1 ELSE 0 END) N_TIGHT
+	, COUNT(*) N_TOTAL
+FROM dataset2
+;
+
+-- p.146
+-- 제품 군 별로 Complain 상황 확인
+SELECT
+	`Department Name`
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) N_SIZE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LARGE%' THEN 1 ELSE 0 END) N_LARGE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LOOSE%' THEN 1 ELSE 0 END) N_LOOSE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SMALL%' THEN 1 ELSE 0 END) N_SMALL
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%TIGHT%' THEN 1 ELSE 0 END) N_TIGHT
+	, SUM(1) N_TOTAL-- COUNT(*) N_TOTAL
+FROM dataset2
+GROUP BY 1
+;
+
+-- 연령별, 제품군별
+SELECT
+	FLOOR(AGE/10) * 10 AGEBAND
+	, `Department Name`
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) N_SIZE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LARGE%' THEN 1 ELSE 0 END) N_LARGE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LOOSE%' THEN 1 ELSE 0 END) N_LOOSE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SMALL%' THEN 1 ELSE 0 END) N_SMALL
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%TIGHT%' THEN 1 ELSE 0 END) N_TIGHT
+	, SUM(1) N_TOTAL-- COUNT(*) N_TOTAL
+FROM dataset2
+GROUP BY 1,2
+ORDER BY 1,2
+;
+
+-- 비율로 체크 하기
+SELECT
+	FLOOR(AGE/10) * 10 AGEBAND
+	, `Department Name`
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) / SUM(1) N_SIZE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LARGE%' THEN 1 ELSE 0 END) / SUM(1) N_LARGE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LOOSE%' THEN 1 ELSE 0 END) / SUM(1) N_LOOSE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SMALL%' THEN 1 ELSE 0 END) / SUM(1) N_SMALL
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%TIGHT%' THEN 1 ELSE 0 END) / SUM(1) N_TIGHT
+	, SUM(1) N_TOTAL-- COUNT(*) N_TOTAL
+FROM dataset2
+GROUP BY 1,2
+ORDER BY 1,2
+;
+
+-- SIZE 타입을 추가해 집계한다. 
+-- 기준 Clothing ID
+SELECT
+	`CLOTHING ID`
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) N_SIZE_T
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) / SUM(1) N_SIZE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LARGE%' THEN 1 ELSE 0 END) / SUM(1) N_LARGE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LOOSE%' THEN 1 ELSE 0 END) / SUM(1) N_LOOSE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SMALL%' THEN 1 ELSE 0 END) / SUM(1) N_SMALL
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%TIGHT%' THEN 1 ELSE 0 END) / SUM(1) N_TIGHT
+FROM dataset2 
+GROUP BY 1
+;
+
+CREATE TABLE mydata.SIZE_STAT AS 
+SELECT
+	`CLOTHING ID`
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) N_SIZE_T
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SIZE%' THEN 1 ELSE 0 END) / SUM(1) N_SIZE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LARGE%' THEN 1 ELSE 0 END) / SUM(1) N_LARGE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%LOOSE%' THEN 1 ELSE 0 END) / SUM(1) N_LOOSE
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%SMALL%' THEN 1 ELSE 0 END) / SUM(1) N_SMALL
+    , SUM(CASE WHEN `REVIEW TEXT` LIKE '%TIGHT%' THEN 1 ELSE 0 END) / SUM(1) N_TIGHT
+FROM dataset2 
+GROUP BY 1
+;
+SELECT * FROM SIZE_STAT;
